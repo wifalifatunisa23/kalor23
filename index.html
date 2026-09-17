@@ -1,0 +1,1056 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>WebAR Praktikum Kalor Interaktif</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Font Awesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Three.js Library -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <!-- Chart.js for real-time temperature graphing -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap');
+        body {
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            overflow: hidden;
+            background-color: #0f172a;
+            color: #f8fafc;
+            user-select: none;
+        }
+        canvas {
+            display: block;
+            outline: none;
+        }
+        .glass-panel {
+            background: rgba(15, 23, 42, 0.75);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+        }
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: rgba(15, 23, 42, 0.5);
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: rgba(99, 102, 241, 0.5);
+            border-radius: 4px;
+        }
+        /* Custom range slider thumb styling */
+        input[type=range] {
+            accent-color: #6366f1;
+        }
+    </style>
+</head>
+<body class="h-screen w-screen relative overflow-hidden flex flex-col justify-between">
+
+    <!-- Top Navigation Header -->
+    <header class="absolute top-0 left-0 right-0 z-20 p-3 sm:p-4 flex justify-between items-center pointer-events-none">
+        <div class="glass-panel rounded-2xl px-4 py-2 flex items-center gap-3 shadow-lg pointer-events-auto">
+            <div class="w-9 h-9 rounded-xl bg-indigo-600/30 border border-indigo-500/50 flex items-center justify-center text-indigo-400">
+                <i class="fa-solid font-bold fa-fire-flame-curved text-lg"></i>
+            </div>
+            <div>
+                <h1 class="text-sm font-bold text-white leading-tight">WebAR Praktikum Kalor</h1>
+                <p class="text-[10px] text-slate-400">Termofisika &amp; Asas Black</p>
+            </div>
+        </div>
+
+        <div class="flex items-center gap-2 pointer-events-auto">
+            <!-- AR Mode Button -->
+            <button id="btnAR" class="glass-panel hover:bg-indigo-600/40 text-indigo-300 hover:text-white px-3.5 py-2 rounded-xl text-xs font-semibold flex items-center gap-2 transition-all shadow-lg border-indigo-500/30">
+                <i class="fa-solid fa-cube text-sm"></i>
+                <span id="arBtnText">Mode AR Kamera</span>
+            </button>
+            
+            <!-- Reset Camera / Scene -->
+            <button id="btnResetScene" title="Reset Tampilan" class="glass-panel hover:bg-slate-700/50 text-slate-300 px-3 py-2 rounded-xl text-xs flex items-center justify-center transition-all">
+                <i class="fa-solid fa-rotate-right text-sm"></i>
+            </button>
+            
+            <!-- Help Modal Toggle -->
+            <button id="btnHelp" title="Petunjuk Praktikum" class="glass-panel hover:bg-slate-700/50 text-slate-300 px-3 py-2 rounded-xl text-xs flex items-center justify-center transition-all">
+                <i class="fa-solid fa-circle-question text-sm"></i>
+            </button>
+        </div>
+    </header>
+
+    <!-- Background Camera Stream for AR Mode -->
+    <video id="arVideo" class="absolute inset-0 w-full h-full object-cover hidden z-0" autoplay playsinline muted></video>
+
+    <!-- 3D Canvas Container -->
+    <div id="canvasContainer" class="absolute inset-0 z-0 bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950"></div>
+
+    <!-- AR Placement Helper Message -->
+    <div id="arMessage" class="hidden absolute top-20 left-1/2 -translate-x-1/2 z-30 glass-panel px-4 py-2 rounded-full text-xs text-indigo-200 border-indigo-500/30 animate-pulse shadow-2xl flex items-center gap-2">
+        <i class="fa-solid fa-hand-pointer text-indigo-400"></i>
+        <span>Geser jari untuk merotasi, cubit untuk memperbesar objek di meja AR</span>
+    </div>
+
+    <!-- Floating Live Telemetry HUD (Top-Right under Header) -->
+    <div class="absolute top-20 right-3 sm:right-4 z-10 w-64 glass-panel rounded-2xl p-3 shadow-xl text-xs border-indigo-500/20">
+        <div class="flex items-center justify-between border-b border-slate-700/60 pb-2 mb-2">
+            <span class="font-bold text-slate-200 flex items-center gap-1.5">
+                <i class="fa-solid fa-temperature-full text-red-400"></i> Suhu Terukur
+            </span>
+            <span id="hudTemp" class="text-base font-extrabold text-amber-400">25.0 °C</span>
+        </div>
+        
+        <div class="space-y-1.5 text-[11px]">
+            <div class="flex justify-between text-slate-300">
+                <span>Kalor Diserap:</span>
+                <span id="hudQ" class="font-mono font-bold text-indigo-300">0.00 J</span>
+            </div>
+            <div class="flex justify-between text-slate-300">
+                <span>Daya Pemanas:</span>
+                <span id="hudPower" class="font-mono text-emerald-400">500 W</span>
+            </div>
+            <div class="flex justify-between text-slate-300">
+                <span>Waktu Pemanasan:</span>
+                <span id="hudTimer" class="font-mono text-slate-200">00:00.0</span>
+            </div>
+            <div class="flex justify-between text-slate-300">
+                <span>Fase Zat:</span>
+                <span id="hudPhase" class="font-semibold text-cyan-300">Cair</span>
+            </div>
+        </div>
+
+        <!-- Mini Temperature Progress Bar -->
+        <div class="w-full bg-slate-800 rounded-full h-2 mt-2 overflow-hidden border border-slate-700">
+            <div id="tempProgressBar" class="bg-gradient-to-r from-blue-500 via-amber-500 to-red-500 h-2 rounded-full transition-all duration-200" style="width: 25%"></div>
+        </div>
+    </div>
+
+    <!-- Microscopic Molecular Kinetic View Widget -->
+    <div class="absolute top-20 left-3 sm:left-4 z-10 hidden sm:block w-48 glass-panel rounded-2xl p-2.5 shadow-xl border-indigo-500/20">
+        <div class="text-[11px] font-bold text-slate-300 mb-1.5 flex items-center gap-1.5">
+            <i class="fa-solid fa-atom text-cyan-400 animate-spin" style="animation-duration: 8s;"></i>
+            <span>Getaran Molekul</span>
+        </div>
+        <canvas id="kineticCanvas" class="w-full h-24 bg-slate-900/80 rounded-xl border border-slate-800"></canvas>
+        <p class="text-[9.5px] text-slate-400 mt-1 text-center">Semakin panas, getaran atom semakin cepat.</p>
+    </div>
+
+    <!-- Bottom Interactive Control Deck -->
+    <main class="absolute bottom-0 left-0 right-0 z-20 p-2 sm:p-4 pointer-events-none">
+        <div class="max-w-4xl mx-auto glass-panel rounded-3xl p-3 sm:p-4 shadow-2xl pointer-events-auto border-indigo-500/20">
+            
+            <!-- Controls & Data Tab Toggle -->
+            <div class="flex items-center justify-between gap-2 border-b border-slate-700/80 pb-3 mb-3">
+                <div class="flex items-center gap-1 bg-slate-900/70 p-1 rounded-xl border border-slate-800">
+                    <button id="tabBtnControls" class="px-3 py-1.5 rounded-lg text-xs font-bold bg-indigo-600 text-white shadow-md transition-all">
+                        <i class="fa-solid fa-sliders mr-1"></i> Parameter
+                    </button>
+                    <button id="tabBtnGraph" class="px-3 py-1.5 rounded-lg text-xs font-medium text-slate-400 hover:text-white transition-all">
+                        <i class="fa-solid fa-chart-line mr-1"></i> Grafik Suhu
+                    </button>
+                    <button id="tabBtnTable" class="px-3 py-1.5 rounded-lg text-xs font-medium text-slate-400 hover:text-white transition-all">
+                        <i class="fa-solid fa-table-list mr-1"></i> Data Praktikum
+                    </button>
+                </div>
+
+                <!-- Primary Action Buttons (Heat Control) -->
+                <div class="flex items-center gap-2">
+                    <button id="btnToggleBurner" class="bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 text-white text-xs font-bold px-4 py-2 rounded-xl shadow-lg shadow-orange-500/20 flex items-center gap-2 transition-all active:scale-95">
+                        <i class="fa-solid fa-fire" id="burnerIcon"></i>
+                        <span id="burnerText">Nyalakan Pemanas</span>
+                    </button>
+                    <button id="btnLogData" title="Catat Titik Data" class="bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold px-3 py-2 rounded-xl border border-slate-700 transition-all active:scale-95">
+                        <i class="fa-solid fa-plus text-indigo-400"></i> Catat
+                    </button>
+                    <button id="btnResetExp" title="Reset Pemanasan" class="bg-slate-800 hover:bg-slate-700 text-rose-400 text-xs font-semibold px-3 py-2 rounded-xl border border-slate-700 transition-all active:scale-95">
+                        <i class="fa-solid fa-rotate"></i>
+                    </button>
+                </div>
+            </div>
+
+            <!-- TAB 1: Controls (Parameters) -->
+            <div id="tabContentControls" class="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+                
+                <!-- Material & Object Selection -->
+                <div class="bg-slate-900/60 p-3 rounded-2xl border border-slate-800/80 space-y-2">
+                    <label class="block font-bold text-slate-200 flex items-center justify-between">
+                        <span><i class="fa-solid fa-flask text-indigo-400 mr-1"></i> Jenis Bahan Zat</span>
+                        <span id="labelC" class="text-[10px] font-normal text-indigo-300">Kalor Jenis: 4184 J/kg°C</span>
+                    </label>
+                    <select id="selectMaterial" class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-white font-medium focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+                        <option value="water" selected>Air (Kalor Jenis: 4184 J/kg°C)</option>
+                        <option value="iron">Besi (Kalor Jenis: 450 J/kg°C)</option>
+                        <option value="copper">Tembaga (Kalor Jenis: 385 J/kg°C)</option>
+                        <option value="aluminum">Aluminium (Kalor Jenis: 900 J/kg°C)</option>
+                        <option value="oil">Minyak Goreng (Kalor Jenis: 2000 J/kg°C)</option>
+                        <option value="ice">Es Batu (Kalor Jenis: 2090 J/kg°C)</option>
+                    </select>
+                    <div class="text-[10px] text-slate-400 leading-tight">
+                        Warna wadah &amp; sifat kalor jenis zat bereaksi sesuai sifat fisik bahan.
+                    </div>
+                </div>
+
+                <!-- Mass & Initial Temp Slider -->
+                <div class="bg-slate-900/60 p-3 rounded-2xl border border-slate-800/80 space-y-2">
+                    <!-- Mass Slider -->
+                    <div>
+                        <div class="flex justify-between font-bold text-slate-200 mb-1">
+                            <span><i class="fa-solid fa-weight-hanging text-emerald-400 mr-1"></i> Massa Bahan</span>
+                            <span id="valMass" class="text-emerald-400">0.50 kg</span>
+                        </div>
+                        <input type="range" id="sliderMass" min="0.10" max="2.00" step="0.05" value="0.50" class="w-full h-1.5 bg-slate-800 rounded-lg cursor-pointer">
+                    </div>
+                    <!-- Initial Temp Slider -->
+                    <div>
+                        <div class="flex justify-between font-bold text-slate-200 mb-1">
+                            <span><i class="fa-solid fa-temperature-arrow-down text-cyan-400 mr-1"></i> Suhu Awal</span>
+                            <span id="valInitTemp" class="text-cyan-400">25.0 °C</span>
+                        </div>
+                        <input type="range" id="sliderInitTemp" min="-10" max="50" step="1" value="25" class="w-full h-1.5 bg-slate-800 rounded-lg cursor-pointer">
+                    </div>
+                </div>
+
+                <!-- Power & Heat Rate -->
+                <div class="bg-slate-900/60 p-3 rounded-2xl border border-slate-800/80 space-y-2">
+                    <div>
+                        <div class="flex justify-between font-bold text-slate-200 mb-1">
+                            <span><i class="fa-solid fa-bolt text-amber-400 mr-1"></i> Daya Api Pemanas</span>
+                            <span id="valPower" class="text-amber-400">500 Watt</span>
+                        </div>
+                        <input type="range" id="sliderPower" min="100" max="2000" step="100" value="500" class="w-full h-1.5 bg-slate-800 rounded-lg cursor-pointer">
+                    </div>
+                    <div class="pt-1 flex items-center justify-between text-[11px] text-slate-400 border-t border-slate-800">
+                        <span>Laju Pembentukan Kalor:</span>
+                        <span id="valRate" class="font-mono text-amber-300 font-semibold">500 J/s</span>
+                    </div>
+                </div>
+
+            </div>
+
+            <!-- TAB 2: Real-time Graph View -->
+            <div id="tabContentGraph" class="hidden h-44 w-full bg-slate-900/80 rounded-2xl p-2 border border-slate-800 relative">
+                <canvas id="tempChart" class="w-full h-full"></canvas>
+            </div>
+
+            <!-- TAB 3: Experiment Data Log Table -->
+            <div id="tabContentTable" class="hidden h-44 overflow-y-auto custom-scrollbar bg-slate-900/80 rounded-2xl p-2 border border-slate-800 text-xs">
+                <table class="w-full text-left border-collapse">
+                    <thead class="sticky top-0 bg-slate-950 text-slate-300 border-b border-slate-700">
+                        <tr>
+                            <th class="p-1.5">No</th>
+                            <th class="p-1.5">Bahan</th>
+                            <th class="p-1.5">Waktu</th>
+                            <th class="p-1.5">Suhu Terukur</th>
+                            <th class="p-1.5">Perubahan Suhu</th>
+                            <th class="p-1.5">Kalor Diserap</th>
+                            <th class="p-1.5">Aksi</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tableBody" class="divide-y divide-slate-800/60 text-slate-300">
+                        <!-- Dynamic Rows -->
+                    </tbody>
+                </table>
+                <div id="emptyTableMsg" class="text-center py-6 text-slate-500 text-xs">
+                    Belum ada data dicatat. Klik tombol <b>Catat</b> untuk mengumpulkan data eksperimen.
+                </div>
+            </div>
+
+        </div>
+    </main>
+
+    <!-- Help & Guide Modal -->
+    <div id="modalHelp" class="hidden fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4">
+        <div class="glass-panel max-w-md w-full rounded-3xl p-6 border-indigo-500/30 shadow-2xl relative space-y-4">
+            <button id="btnCloseHelp" class="absolute top-4 right-4 text-slate-400 hover:text-white">
+                <i class="fa-solid fa-xmark text-lg"></i>
+            </button>
+            <h2 class="text-lg font-bold text-white flex items-center gap-2">
+                <i class="fa-solid fa-book-open text-indigo-400"></i> Panduan Praktikum WebAR Kalor
+            </h2>
+            <div class="text-xs text-slate-300 space-y-2 leading-relaxed">
+                <p>1. <b>Atur Parameter:</b> Pilih jenis zat (air, besi, aluminium, dll.), ubah massa bahan, serta suhu awal.</p>
+                <p>2. <b>Nyalakan Pemanas:</b> Klik tombol <i>Nyalakan Pemanas</i> untuk mengalirkan kalor. Suhu zat akan naik secara bertahap.</p>
+                <p>3. <b>Amati Perubahan:</b> Perhatikan nyala api, grafik suhu real-time, getaran molekul kinetik, serta perubahan warna zat saat dipanaskan.</p>
+                <p>4. <b>Mode WebAR:</b> Klik <i>Mode AR Kamera</i> untuk meletakkan alat lab 3D langsung di atas meja kerja Anda secara nyata!</p>
+                <p>5. <b>Persamaan Dasar:</b> Kalor Diserap = Massa × Kalor Jenis × Perubahan Suhu.</p>
+            </div>
+            <button id="btnGotIt" class="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-2.5 rounded-xl transition-all text-xs">
+                Paham &amp; Mulai Percobaan
+            </button>
+        </div>
+    </div>
+
+    <!-- Notification Toast -->
+    <div id="toast" class="fixed top-20 left-1/2 -translate-x-1/2 z-50 glass-panel px-4 py-2 rounded-2xl text-xs font-semibold text-white shadow-2xl transition-all duration-300 opacity-0 pointer-events-none border-indigo-500/40">
+        <span id="toastMsg">Data berhasil dicatat!</span>
+    </div>
+
+    <script>
+        // Materials Physics Specs
+        const MATERIALS = {
+            water: { name: 'Air', c: 4184, color: 0x38bdf8, liquid: true, meltingPoint: 0, boilingPoint: 100, latentHeat: 2260000 },
+            iron: { name: 'Besi', c: 450, color: 0x94a3b8, liquid: false, meltingPoint: 1538, boilingPoint: 2862, latentHeat: 272000 },
+            copper: { name: 'Tembaga', c: 385, color: 0xf97316, liquid: false, meltingPoint: 1085, boilingPoint: 2562, latentHeat: 205000 },
+            aluminum: { name: 'Aluminium', c: 900, color: 0xe2e8f0, liquid: false, meltingPoint: 660, boilingPoint: 2470, latentHeat: 397000 },
+            oil: { name: 'Minyak', c: 2000, color: 0xeab308, liquid: true, meltingPoint: -10, boilingPoint: 200, latentHeat: 180000 },
+            ice: { name: 'Es Batu', c: 2090, color: 0xe0f2fe, liquid: false, meltingPoint: 0, boilingPoint: 100, latentHeat: 334000 }
+        };
+
+        // State variables
+        let currentMaterialKey = 'water';
+        let mass = 0.50; // kg
+        let initTemp = 25.0; // °C
+        let currentTemp = 25.0; // °C
+        let power = 500; // Watts
+        let isHeating = false;
+        let elapsedTime = 0; // seconds
+        let totalQ = 0; // Joules
+        let loggedData = [];
+
+        // Three.js Core Variables
+        let scene, camera, renderer, controls;
+        let labGroup, beakerMesh, liquidMesh, solidMesh, flameMesh, flameParticles, mercuryMesh, tempReadoutCanvas, tempReadoutTexture;
+        let arActive = false;
+        let mediaStream = null;
+
+        // Chart.js instance
+        let tempChartInstance = null;
+
+        function init3D() {
+            const container = document.getElementById('canvasContainer');
+            
+            // Scene Setup
+            scene = new THREE.Scene();
+            scene.fog = new THREE.FogExp2(0x0f172a, 0.08);
+
+            // Camera Setup
+            camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
+            camera.position.set(0, 1.8, 2.8);
+
+            // Renderer Setup
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            renderer.toneMapping = THREE.ACESFilmicToneMapping;
+            container.appendChild(renderer.domElement);
+
+            // Orbit Controls
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
+            controls.maxPolarAngle = Math.PI / 2 + 0.05; // Don't go below floor
+            controls.minDistance = 1.0;
+            controls.maxDistance = 6.0;
+            controls.target.set(0, 0.6, 0);
+
+            // Lighting System
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
+            scene.add(ambientLight);
+
+            const dirLight = new THREE.DirectionalLight(0xffffff, 1.2);
+            dirLight.position.set(3, 5, 2);
+            dirLight.castShadow = true;
+            dirLight.shadow.mapSize.width = 1024;
+            dirLight.shadow.mapSize.height = 1024;
+            dirLight.shadow.camera.near = 0.5;
+            dirLight.shadow.camera.far = 10;
+            scene.add(dirLight);
+
+            const pointLight = new THREE.PointLight(0xff6600, 0, 2); // Flame glow
+            pointLight.position.set(0, 0.2, 0);
+            scene.add(pointLight);
+
+            // Lab Group Assembly
+            labGroup = new THREE.Group();
+            scene.add(labGroup);
+
+            buildLabEnvironment();
+
+            // Resize Event Listener
+            window.addEventListener('resize', onWindowResize);
+        }
+
+        function buildLabEnvironment() {
+            // 1. Table Top / Grid Base
+            const tableGeo = new THREE.CylinderGeometry(1.5, 1.5, 0.05, 32);
+            const tableMat = new THREE.MeshStandardMaterial({
+                color: 0x1e293b,
+                roughness: 0.4,
+                metalness: 0.2
+            });
+            const tableMesh = new THREE.Mesh(tableGeo, tableMat);
+            tableMesh.position.y = -0.025;
+            tableMesh.receiveShadow = true;
+            labGroup.add(tableMesh);
+
+            // Grid helper on table
+            const grid = new THREE.GridHelper(2.8, 20, 0x6366f1, 0x334155);
+            grid.position.y = 0.001;
+            labGroup.add(grid);
+
+            // 2. Bunsen Burner & Tripod Stand
+            const burnerBaseGeo = new THREE.CylinderGeometry(0.2, 0.25, 0.04, 32);
+            const metalMat = new THREE.MeshStandardMaterial({ color: 0x64748b, metalness: 0.8, roughness: 0.2 });
+            const burnerBase = new THREE.Mesh(burnerBaseGeo, metalMat);
+            burnerBase.position.set(0, 0.02, 0);
+            labGroup.add(burnerBase);
+
+            const pipeGeo = new THREE.CylinderGeometry(0.03, 0.03, 0.2, 16);
+            const pipeMesh = new THREE.Mesh(pipeGeo, metalMat);
+            pipeMesh.position.set(0, 0.12, 0);
+            labGroup.add(pipeMesh);
+
+            // Tripod Legs & Ring
+            const ringGeo = new THREE.TorusGeometry(0.35, 0.02, 16, 32);
+            const ringMesh = new THREE.Mesh(ringGeo, metalMat);
+            ringMesh.rotation.x = Math.PI / 2;
+            ringMesh.position.set(0, 0.45, 0);
+            labGroup.add(ringMesh);
+
+            for (let i = 0; i < 3; i++) {
+                const angle = (i * Math.PI * 2) / 3;
+                const legGeo = new THREE.CylinderGeometry(0.015, 0.015, 0.46, 16);
+                const legMesh = new THREE.Mesh(legGeo, metalMat);
+                legMesh.position.set(Math.cos(angle) * 0.32, 0.23, Math.sin(angle) * 0.32);
+                legMesh.rotation.z = Math.cos(angle) * -0.15;
+                legMesh.rotation.x = Math.sin(angle) * 0.15;
+                labGroup.add(legMesh);
+            }
+
+            // Wire Gauze Mesh
+            const gauzeGeo = new THREE.CylinderGeometry(0.36, 0.36, 0.005, 32);
+            const gauzeMat = new THREE.MeshStandardMaterial({ color: 0x475569, wireframe: true });
+            const gauzeMesh = new THREE.Mesh(gauzeGeo, gauzeMat);
+            gauzeMesh.position.set(0, 0.46, 0);
+            labGroup.add(gauzeMesh);
+
+            // 3. Flame Shader / Animated Cone Mesh
+            const flameGeo = new THREE.ConeGeometry(0.1, 0.25, 16);
+            const flameMat = new THREE.MeshBasicMaterial({
+                color: 0xff5500,
+                transparent: true,
+                opacity: 0.85
+            });
+            flameMesh = new THREE.Mesh(flameGeo, flameMat);
+            flameMesh.position.set(0, 0.32, 0);
+            flameMesh.visible = false;
+            labGroup.add(flameMesh);
+
+            // Inner blue core flame
+            const innerFlameGeo = new THREE.ConeGeometry(0.05, 0.12, 16);
+            const innerFlameMat = new THREE.MeshBasicMaterial({ color: 0x38bdf8, transparent: true, opacity: 0.9 });
+            const innerFlame = new THREE.Mesh(innerFlameGeo, innerFlameMat);
+            innerFlame.position.set(0, -0.04, 0);
+            flameMesh.add(innerFlame);
+
+            // 4. Glass Beaker (Calorimeter / Container)
+            const beakerGeo = new THREE.CylinderGeometry(0.32, 0.3, 0.55, 32, 1, true);
+            const glassMat = new THREE.MeshPhysicalMaterial({
+                color: 0xffffff,
+                transparent: true,
+                opacity: 0.3,
+                roughness: 0.1,
+                metalness: 0.1,
+                transmission: 0.9,
+                ior: 1.5,
+                thickness: 0.05,
+                side: THREE.DoubleSide
+            });
+            beakerMesh = new THREE.Mesh(beakerGeo, glassMat);
+            beakerMesh.position.set(0, 0.74, 0);
+            beakerMesh.castShadow = true;
+            labGroup.add(beakerMesh);
+
+            // Beaker Base Plate
+            const beakerBottomGeo = new THREE.CylinderGeometry(0.3, 0.3, 0.02, 32);
+            const beakerBottom = new THREE.Mesh(beakerBottomGeo, glassMat);
+            beakerBottom.position.set(0, 0.47, 0);
+            labGroup.add(beakerBottom);
+
+            // 5. Liquid Content inside Beaker
+            const liquidGeo = new THREE.CylinderGeometry(0.3, 0.29, 0.4, 32);
+            const liquidMat = new THREE.MeshStandardMaterial({
+                color: MATERIALS.water.color,
+                transparent: true,
+                opacity: 0.75,
+                roughness: 0.2
+            });
+            liquidMesh = new THREE.Mesh(liquidGeo, liquidMat);
+            liquidMesh.position.set(0, 0.68, 0);
+            labGroup.add(liquidMesh);
+
+            // Solid Metal Block (For Iron/Copper/Aluminum)
+            const solidGeo = new THREE.BoxGeometry(0.32, 0.32, 0.32);
+            const solidMat = new THREE.MeshStandardMaterial({
+                color: MATERIALS.iron.color,
+                metalness: 0.8,
+                roughness: 0.3
+            });
+            solidMesh = new THREE.Mesh(solidGeo, solidMat);
+            solidMesh.position.set(0, 0.64, 0);
+            solidMesh.visible = false;
+            labGroup.add(solidMesh);
+
+            // 6. Digital Thermometer Apparatus
+            const standPoleGeo = new THREE.CylinderGeometry(0.015, 0.015, 1.2, 16);
+            const standPole = new THREE.Mesh(standPoleGeo, metalMat);
+            standPole.position.set(-0.5, 0.6, 0);
+            labGroup.add(standPole);
+
+            const clampGeo = new THREE.BoxGeometry(0.4, 0.04, 0.08);
+            const clampMesh = new THREE.Mesh(clampGeo, metalMat);
+            clampMesh.position.set(-0.3, 1.05, 0);
+            labGroup.add(clampMesh);
+
+            // Glass Thermometer Tube dipping into fluid
+            const thermoTubeGeo = new THREE.CylinderGeometry(0.018, 0.018, 0.7, 16);
+            const thermoGlassMat = new THREE.MeshPhysicalMaterial({ color: 0xffffff, transparent: true, opacity: 0.4, transmission: 0.8 });
+            const thermoTube = new THREE.Mesh(thermoTubeGeo, thermoGlassMat);
+            thermoTube.position.set(-0.1, 0.85, 0);
+            labGroup.add(thermoTube);
+
+            // Mercury Column inside
+            const mercuryGeo = new THREE.CylinderGeometry(0.01, 0.01, 0.65, 16);
+            const mercuryMat = new THREE.MeshBasicMaterial({ color: 0xef4444 });
+            mercuryMesh = new THREE.Mesh(mercuryGeo, mercuryMat);
+            mercuryMesh.position.set(-0.1, 0.85, 0);
+            mercuryMesh.scale.set(1, 0.25, 1); // Dynamic scale according to temperature
+            labGroup.add(mercuryMesh);
+
+            // 7. 3D Digital Reading Display Screen
+            create3DTempDisplay();
+        }
+
+        function create3DTempDisplay() {
+            tempReadoutCanvas = document.createElement('canvas');
+            tempReadoutCanvas.width = 256;
+            tempReadoutCanvas.height = 128;
+            tempReadoutTexture = new THREE.CanvasTexture(tempReadoutCanvas);
+
+            update3DTempCanvas(25.0);
+
+            const displayGeo = new THREE.BoxGeometry(0.35, 0.18, 0.05);
+            const displayMat = [
+                new THREE.MeshStandardMaterial({ color: 0x1e293b }),
+                new THREE.MeshStandardMaterial({ color: 0x1e293b }),
+                new THREE.MeshStandardMaterial({ color: 0x1e293b }),
+                new THREE.MeshStandardMaterial({ color: 0x1e293b }),
+                new THREE.MeshStandardMaterial({ map: tempReadoutTexture }), // Front readout
+                new THREE.MeshStandardMaterial({ color: 0x1e293b })
+            ];
+            const displayMesh = new THREE.Mesh(displayGeo, displayMat);
+            displayMesh.position.set(-0.1, 1.22, 0);
+            labGroup.add(displayMesh);
+        }
+
+        function update3DTempCanvas(tempVal) {
+            if (!tempReadoutCanvas) return;
+            const ctx = tempReadoutCanvas.getContext('2d');
+            ctx.fillStyle = '#020617';
+            ctx.fillRect(0, 0, 256, 128);
+
+            ctx.strokeStyle = '#3b82f6';
+            ctx.lineWidth = 6;
+            ctx.strokeRect(4, 4, 248, 120);
+
+            ctx.fillStyle = '#f59e0b';
+            ctx.font = 'bold 44px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText(`${tempVal.toFixed(1)} °C`, 128, 75);
+
+            ctx.fillStyle = '#94a3b8';
+            ctx.font = '16px sans-serif';
+            ctx.fillText('THERMO-SENSOR', 128, 105);
+
+            tempReadoutTexture.needsUpdate = true;
+        }
+
+        let kineticParticles = [];
+        function initKineticCanvas() {
+            const kCanvas = document.getElementById('kineticCanvas');
+            const kCtx = kCanvas.getContext('2d');
+            kCanvas.width = kCanvas.clientWidth;
+            kCanvas.height = kCanvas.clientHeight;
+
+            kineticParticles = [];
+            for (let i = 0; i < 35; i++) {
+                kineticParticles.push({
+                    x: Math.random() * kCanvas.width,
+                    y: Math.random() * kCanvas.height,
+                    vx: (Math.random() - 0.5) * 2,
+                    vy: (Math.random() - 0.5) * 2,
+                    radius: 3.5
+                });
+            }
+        }
+
+        function renderKineticCanvas() {
+            const kCanvas = document.getElementById('kineticCanvas');
+            if (!kCanvas || !kCanvas.clientWidth) return;
+            const kCtx = kCanvas.getContext('2d');
+            kCtx.clearRect(0, 0, kCanvas.width, kCanvas.height);
+
+            // Speed multiplier directly linked to Kelvin temp (or Celsius + 50)
+            const speedFactor = Math.max(0.2, (currentTemp + 20) / 40);
+            const isLiquid = MATERIALS[currentMaterialKey].liquid;
+
+            kCtx.fillStyle = isLiquid ? '#38bdf8' : '#f97316';
+
+            kineticParticles.forEach(p => {
+                p.x += p.vx * speedFactor;
+                p.y += p.vy * speedFactor;
+
+                // Bounce bounds
+                if (p.x < 5 || p.x > kCanvas.width - 5) p.vx *= -1;
+                if (p.y < 5 || p.y > kCanvas.height - 5) p.vy *= -1;
+
+                kCtx.beginPath();
+                kCtx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+                kCtx.fill();
+            });
+        }
+
+        function initChart() {
+            const ctx = document.getElementById('tempChart').getContext('2d');
+            tempChartInstance = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: [0],
+                    datasets: [{
+                        label: 'Suhu (°C)',
+                        data: [initTemp],
+                        borderColor: '#6366f1',
+                        backgroundColor: 'rgba(99, 102, 241, 0.15)',
+                        fill: true,
+                        tension: 0.3,
+                        pointRadius: 3,
+                        pointBackgroundColor: '#f59e0b'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    animation: false,
+                    scales: {
+                        x: {
+                            title: { display: true, text: 'Waktu (Detik)', color: '#94a3b8', font: { size: 10 } },
+                            ticks: { color: '#64748b', font: { size: 9 } },
+                            grid: { color: 'rgba(51, 65, 85, 0.4)' }
+                        },
+                        y: {
+                            title: { display: true, text: 'Suhu (°C)', color: '#94a3b8', font: { size: 10 } },
+                            ticks: { color: '#64748b', font: { size: 9 } },
+                            grid: { color: 'rgba(51, 65, 85, 0.4)' }
+                        }
+                    },
+                    plugins: {
+                        legend: { display: false }
+                    }
+                }
+            });
+        }
+
+        function updateChart(timeVal, tempVal) {
+            if (!tempChartInstance) return;
+            tempChartInstance.data.labels.push(timeVal.toFixed(1));
+            tempChartInstance.data.datasets[0].data.push(tempVal.toFixed(1));
+            
+            // Limit chart memory points
+            if (tempChartInstance.data.labels.length > 60) {
+                tempChartInstance.data.labels.shift();
+                tempChartInstance.data.datasets[0].data.shift();
+            }
+            tempChartInstance.update('none');
+        }
+
+        let lastTimestamp = performance.now();
+
+        function updatePhysicsSimulation(now) {
+            const deltaSec = (now - lastTimestamp) / 1000;
+            lastTimestamp = now;
+
+            if (isHeating) {
+                elapsedTime += deltaSec;
+
+                const mat = MATERIALS[currentMaterialKey];
+                // Heating Power: dQ = P * dt
+                const dQ = power * deltaSec;
+                totalQ += dQ;
+
+                // Heat Formula: dT = dQ / (m * c)
+                const dT = dQ / (mass * mat.c);
+                currentTemp += dT;
+
+                // Max limit cap for safety/boiling visual
+                if (currentTemp > 250) currentTemp = 250;
+
+                // Live Update Chart every 0.5s interval
+                if (Math.floor(elapsedTime * 2) > Math.floor((elapsedTime - deltaSec) * 2)) {
+                    updateChart(elapsedTime, currentTemp);
+                }
+            }
+
+            // Sync Visual UI Displays
+            updateHUDDisplays();
+            update3DTempCanvas(currentTemp);
+
+            // Animate Mercury level in Thermo meter tube
+            const targetThermoScale = Math.min(2.5, Math.max(0.1, (currentTemp + 20) / 80));
+            mercuryMesh.scale.y = THREE.MathUtils.lerp(mercuryMesh.scale.y, targetThermoScale, 0.1);
+
+            // Animate Flame flicker
+            if (flameMesh.visible) {
+                flameMesh.scale.set(
+                    1 + Math.sin(now * 0.02) * 0.08,
+                    1 + Math.cos(now * 0.025) * 0.12,
+                    1 + Math.sin(now * 0.03) * 0.08
+                );
+            }
+
+            // Animate Fluid / Metal visual changes based on heat
+            updateMaterialVisuals();
+        }
+
+        function updateMaterialVisuals() {
+            const matInfo = MATERIALS[currentMaterialKey];
+
+            if (matInfo.liquid) {
+                beakerMesh.visible = true;
+                liquidMesh.visible = true;
+                solidMesh.visible = false;
+
+                // Liquid scale based on mass volume
+                const hScale = Math.min(1.2, Math.max(0.3, mass / 1.0));
+                liquidMesh.scale.set(1, hScale, 1);
+
+                // Thermal expansion/color shift
+                const heatRatio = Math.min(1, Math.max(0, currentTemp / 120));
+                const baseColor = new THREE.Color(matInfo.color);
+                const hotColor = new THREE.Color(0xef4444);
+                liquidMesh.material.color.lerpColors(baseColor, hotColor, heatRatio * 0.6);
+
+            } else {
+                // Solid Block
+                beakerMesh.visible = true;
+                liquidMesh.visible = false;
+                solidMesh.visible = true;
+
+                const sScale = Math.min(1.3, Math.max(0.6, Math.cbrt(mass)));
+                solidMesh.scale.set(sScale, sScale, sScale);
+
+                // Glow effect when heated solid
+                const heatRatio = Math.min(1, Math.max(0, currentTemp / 200));
+                const baseColor = new THREE.Color(matInfo.color);
+                const glowingColor = new THREE.Color(0xff3300);
+                solidMesh.material.color.lerpColors(baseColor, glowingColor, heatRatio);
+            }
+        }
+
+        function updateHUDDisplays() {
+            document.getElementById('hudTemp').innerText = `${currentTemp.toFixed(1)} °C`;
+            document.getElementById('hudQ').innerText = totalQ > 10000 
+                ? `${(totalQ / 1000).toFixed(2)} kJ` 
+                : `${totalQ.toFixed(0)} J`;
+
+            const mins = Math.floor(elapsedTime / 60);
+            const secs = (elapsedTime % 60).toFixed(1);
+            document.getElementById('hudTimer').innerText = `${mins.toString().padStart(2, '0')}:${secs.padStart(4, '0')}`;
+
+            // Phase indicator
+            const mat = MATERIALS[currentMaterialKey];
+            let phaseStr = mat.liquid ? 'Cair' : 'Padat';
+            if (currentTemp >= mat.boilingPoint && mat.liquid) phaseStr = 'Mendidih / Gas';
+            else if (currentTemp < 0 && currentMaterialKey === 'water') phaseStr = 'Beku (Es)';
+            document.getElementById('hudPhase').innerText = phaseStr;
+
+            // Progress bar
+            const progPct = Math.min(100, Math.max(0, ((currentTemp - initTemp) / (120 - initTemp)) * 100));
+            document.getElementById('tempProgressBar').style.width = `${progPct}%`;
+        }
+
+        function setupEventListeners() {
+            // Material dropdown
+            const selectMat = document.getElementById('selectMaterial');
+            selectMat.addEventListener('change', (e) => {
+                currentMaterialKey = e.target.value;
+                const mat = MATERIALS[currentMaterialKey];
+                document.getElementById('labelC').innerText = `Kalor Jenis: ${mat.c} J/kg°C`;
+                resetExperiment();
+            });
+
+            // Sliders
+            document.getElementById('sliderMass').addEventListener('input', (e) => {
+                mass = parseFloat(e.target.value);
+                document.getElementById('valMass').innerText = `${mass.toFixed(2)} kg`;
+                resetExperiment();
+            });
+
+            document.getElementById('sliderInitTemp').addEventListener('input', (e) => {
+                initTemp = parseFloat(e.target.value);
+                document.getElementById('valInitTemp').innerText = `${initTemp.toFixed(1)} °C`;
+                resetExperiment();
+            });
+
+            document.getElementById('sliderPower').addEventListener('input', (e) => {
+                power = parseInt(e.target.value);
+                document.getElementById('valPower').innerText = `${power} Watt`;
+                document.getElementById('hudPower').innerText = `${power} W`;
+                document.getElementById('valRate').innerText = `${power} J/s`;
+            });
+
+            // Toggle Burner Heating
+            document.getElementById('btnToggleBurner').addEventListener('click', () => {
+                isHeating = !isHeating;
+                flameMesh.visible = isHeating;
+
+                const burnerBtn = document.getElementById('btnToggleBurner');
+                const burnerText = document.getElementById('burnerText');
+                const burnerIcon = document.getElementById('burnerIcon');
+
+                if (isHeating) {
+                    burnerBtn.classList.remove('from-amber-500', 'to-orange-600');
+                    burnerBtn.classList.add('from-rose-600', 'to-red-700');
+                    burnerText.innerText = 'Matikan Pemanas';
+                    burnerIcon.className = 'fa-solid fa-fire-extinguisher';
+                    showToast('Pemanas dinyalakan!');
+                } else {
+                    burnerBtn.classList.remove('from-rose-600', 'to-red-700');
+                    burnerBtn.classList.add('from-amber-500', 'to-orange-600');
+                    burnerText.innerText = 'Nyalakan Pemanas';
+                    burnerIcon.className = 'fa-solid fa-fire';
+                    showToast('Pemanas dimatikan.');
+                }
+            });
+
+            // Reset Experiment
+            document.getElementById('btnResetExp').addEventListener('click', resetExperiment);
+            document.getElementById('btnResetScene').addEventListener('click', () => {
+                camera.position.set(0, 1.8, 2.8);
+                controls.target.set(0, 0.6, 0);
+            });
+
+            // Data Table Recording
+            document.getElementById('btnLogData').addEventListener('click', logCurrentDataPoint);
+
+            // Tab Navigation
+            document.getElementById('tabBtnControls').addEventListener('click', () => switchTab('controls'));
+            document.getElementById('tabBtnGraph').addEventListener('click', () => switchTab('graph'));
+            document.getElementById('tabBtnTable').addEventListener('click', () => switchTab('table'));
+
+            // WebAR Camera Toggle
+            document.getElementById('btnAR').addEventListener('click', toggleARCameraMode);
+
+            // Help Modal
+            document.getElementById('btnHelp').addEventListener('click', () => {
+                document.getElementById('modalHelp').classList.remove('hidden');
+            });
+            document.getElementById('btnCloseHelp').addEventListener('click', () => {
+                document.getElementById('modalHelp').classList.add('hidden');
+            });
+            document.getElementById('btnGotIt').addEventListener('click', () => {
+                document.getElementById('modalHelp').classList.add('hidden');
+            });
+        }
+
+        function switchTab(tabName) {
+            const tabs = ['Controls', 'Graph', 'Table'];
+            tabs.forEach(t => {
+                const btn = document.getElementById(`tabBtn${t}`);
+                const content = document.getElementById(`tabContent${t}`);
+                if (t.toLowerCase() === tabName) {
+                    btn.className = 'px-3 py-1.5 rounded-lg text-xs font-bold bg-indigo-600 text-white shadow-md transition-all';
+                    content.classList.remove('hidden');
+                } else {
+                    btn.className = 'px-3 py-1.5 rounded-lg text-xs font-medium text-slate-400 hover:text-white transition-all';
+                    content.classList.add('hidden');
+                }
+            });
+
+            if (tabName === 'graph' && tempChartInstance) {
+                setTimeout(() => tempChartInstance.resize(), 50);
+            }
+        }
+
+        function resetExperiment() {
+            isHeating = false;
+            flameMesh.visible = false;
+            currentTemp = initTemp;
+            elapsedTime = 0;
+            totalQ = 0;
+
+            const burnerBtn = document.getElementById('btnToggleBurner');
+            burnerBtn.classList.remove('from-rose-600', 'to-red-700');
+            burnerBtn.classList.add('from-amber-500', 'to-orange-600');
+            document.getElementById('burnerText').innerText = 'Nyalakan Pemanas';
+            document.getElementById('burnerIcon').className = 'fa-solid fa-fire';
+
+            // Reset Chart
+            if (tempChartInstance) {
+                tempChartInstance.data.labels = [0];
+                tempChartInstance.data.datasets[0].data = [initTemp];
+                tempChartInstance.update();
+            }
+
+            updateHUDDisplays();
+            update3DTempCanvas(currentTemp);
+            showToast('Simulasi direset.');
+        }
+
+        function logCurrentDataPoint() {
+            const mat = MATERIALS[currentMaterialKey];
+            const deltaT = currentTemp - initTemp;
+            
+            const logEntry = {
+                id: loggedData.length + 1,
+                material: mat.name,
+                time: elapsedTime.toFixed(1),
+                temp: currentTemp.toFixed(1),
+                deltaT: deltaT.toFixed(1),
+                q: totalQ > 10000 ? `${(totalQ / 1000).toFixed(2)} kJ` : `${totalQ.toFixed(0)} J`
+            };
+
+            loggedData.push(logEntry);
+
+            // Render row in HTML table
+            const tbody = document.getElementById('tableBody');
+            document.getElementById('emptyTableMsg').classList.add('hidden');
+
+            const tr = document.createElement('tr');
+            tr.className = 'hover:bg-slate-800/40 transition-all border-b border-slate-800/40';
+            tr.innerHTML = `
+                <td class="p-1.5 font-bold text-slate-400">${logEntry.id}</td>
+                <td class="p-1.5 text-indigo-300 font-semibold">${logEntry.material}</td>
+                <td class="p-1.5 font-mono">${logEntry.time}s</td>
+                <td class="p-1.5 font-mono text-amber-400 font-bold">${logEntry.temp} °C</td>
+                <td class="p-1.5 font-mono text-emerald-400">+${logEntry.deltaT} °C</td>
+                <td class="p-1.5 font-mono text-indigo-300">${logEntry.q}</td>
+                <td class="p-1.5">
+                    <button onclick="deleteDataRow(${logEntry.id})" class="text-rose-400 hover:text-rose-300 px-1.5 py-0.5 rounded">
+                        <i class="fa-solid fa-trash-can"></i>
+                    </button>
+                </td>
+            `;
+            tbody.appendChild(tr);
+
+            showToast(`Data titik #${logEntry.id} dicatat!`);
+        }
+
+        window.deleteDataRow = function(id) {
+            loggedData = loggedData.filter(d => d.id !== id);
+            const tbody = document.getElementById('tableBody');
+            tbody.innerHTML = '';
+            
+            if (loggedData.length === 0) {
+                document.getElementById('emptyTableMsg').classList.remove('hidden');
+            } else {
+                loggedData.forEach((logEntry, idx) => {
+                    logEntry.id = idx + 1;
+                    const tr = document.createElement('tr');
+                    tr.className = 'hover:bg-slate-800/40 transition-all border-b border-slate-800/40';
+                    tr.innerHTML = `
+                        <td class="p-1.5 font-bold text-slate-400">${logEntry.id}</td>
+                        <td class="p-1.5 text-indigo-300 font-semibold">${logEntry.material}</td>
+                        <td class="p-1.5 font-mono">${logEntry.time}s</td>
+                        <td class="p-1.5 font-mono text-amber-400 font-bold">${logEntry.temp} °C</td>
+                        <td class="p-1.5 font-mono text-emerald-400">+${logEntry.deltaT} °C</td>
+                        <td class="p-1.5 font-mono text-indigo-300">${logEntry.q}</td>
+                        <td class="p-1.5">
+                            <button onclick="deleteDataRow(${logEntry.id})" class="text-rose-400 hover:text-rose-300 px-1.5 py-0.5 rounded">
+                                <i class="fa-solid fa-trash-can"></i>
+                            </button>
+                        </td>
+                    `;
+                    tbody.appendChild(tr);
+                });
+            }
+        };
+
+        async function toggleARCameraMode() {
+            const videoEl = document.getElementById('arVideo');
+            const arBtnText = document.getElementById('arBtnText');
+            const arMsg = document.getElementById('arMessage');
+
+            if (!arActive) {
+                try {
+                    mediaStream = await navigator.mediaDevices.getUserMedia({
+                        video: { facingMode: 'environment' }
+                    });
+                    videoEl.srcObject = mediaStream;
+                    videoEl.classList.remove('hidden');
+                    renderer.setClearColor(0x000000, 0); // Transparent canvas background
+                    scene.fog = null;
+
+                    arActive = true;
+                    arBtnText.innerText = 'Keluar WebAR';
+                    arMsg.classList.remove('hidden');
+                    showToast('Mode WebAR Kamera Aktif!');
+                } catch (err) {
+                    showToast('Akses kamera tidak diizinkan atau tidak tersedia.');
+                    console.error('AR Video error:', err);
+                }
+            } else {
+                if (mediaStream) {
+                    mediaStream.getTracks().forEach(track => track.stop());
+                }
+                videoEl.classList.add('hidden');
+                renderer.setClearColor(0x000000, 1);
+                scene.fog = new THREE.FogExp2(0x0f172a, 0.08);
+
+                arActive = false;
+                arBtnText.innerText = 'Mode AR Kamera';
+                arMsg.classList.add('hidden');
+                showToast('Kembali ke mode 3D standar.');
+            }
+        }
+
+        function showToast(msg) {
+            const toast = document.getElementById('toast');
+            document.getElementById('toastMsg').innerText = msg;
+            toast.classList.remove('opacity-0', 'pointer-events-none');
+            setTimeout(() => {
+                toast.classList.add('opacity-0', 'pointer-events-none');
+            }, 2500);
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        function animate(now) {
+            requestAnimationFrame(animate);
+
+            // Update Physics calculations & 3D dynamic updates
+            updatePhysicsSimulation(now);
+
+            // Render Kinetic molecular view canvas
+            renderKineticCanvas();
+
+            // Controls update
+            controls.update();
+
+            // Render 3D Scene
+            renderer.render(scene, camera);
+        }
+
+        window.onload = function() {
+            init3D();
+            initKineticCanvas();
+            initChart();
+            setupEventListeners();
+
+            // Initial UI Sync
+            updateHUDDisplays();
+
+            // Start Main Animation Loop
+            requestAnimationFrame(animate);
+        };
+    </script>
+</body>
+</html>
